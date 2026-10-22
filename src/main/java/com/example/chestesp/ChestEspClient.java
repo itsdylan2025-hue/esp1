@@ -3,13 +3,12 @@ package com.example.chestesp;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
-import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
-import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
+import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext;
+import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.render.VertexConsumerProvider;
-import net.minecraft.client.render.VertexRendering;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.Vec3d;
@@ -56,6 +55,38 @@ public class ChestEspClient implements ClientModInitializer {
         if (mc.player != null) mc.player.sendMessage(Text.literal(s), true);
     }
 
+    private static void line(VertexConsumer v, MatrixStack.Entry e,
+                             double x1, double y1, double z1,
+                             double x2, double y2, double z2,
+                             float r, float g, float b) {
+        float nx = (float) (x2 - x1), ny = (float) (y2 - y1), nz = (float) (z2 - z1);
+        float len = (float) Math.sqrt(nx * nx + ny * ny + nz * nz);
+        if (len < 1e-4f) return;
+        nx /= len; ny /= len; nz /= len;
+        v.vertex(e, (float) x1, (float) y1, (float) z1).color(r, g, b, 1f).normal(e, nx, ny, nz).lineWidth(2f);
+        v.vertex(e, (float) x2, (float) y2, (float) z2).color(r, g, b, 1f).normal(e, nx, ny, nz).lineWidth(2f);
+    }
+
+    private static void box(VertexConsumer v, MatrixStack.Entry e,
+                            double x, double y, double z, float r, float g, float b) {
+        double X = x + 1, Y = y + 1, Z = z + 1;
+        // bottom
+        line(v, e, x, y, z, X, y, z, r, g, b);
+        line(v, e, X, y, z, X, y, Z, r, g, b);
+        line(v, e, X, y, Z, x, y, Z, r, g, b);
+        line(v, e, x, y, Z, x, y, z, r, g, b);
+        // top
+        line(v, e, x, Y, z, X, Y, z, r, g, b);
+        line(v, e, X, Y, z, X, Y, Z, r, g, b);
+        line(v, e, X, Y, Z, x, Y, Z, r, g, b);
+        line(v, e, x, Y, Z, x, Y, z, r, g, b);
+        // verticals
+        line(v, e, x, y, z, x, Y, z, r, g, b);
+        line(v, e, X, y, z, X, Y, z, r, g, b);
+        line(v, e, X, y, Z, X, Y, Z, r, g, b);
+        line(v, e, x, y, Z, x, Y, Z, r, g, b);
+    }
+
     private static void render(WorldRenderContext ctx) {
         MinecraftClient mc = MinecraftClient.getInstance();
         if (!espOn || mc.player == null || targets.isEmpty()) return;
@@ -66,8 +97,7 @@ public class ChestEspClient implements ClientModInitializer {
 
         float delta = mc.getRenderTickCounter().getTickProgress(true);
         Vec3d cam = mc.gameRenderer.getCamera().getCameraPos();
-        Vec3d look = mc.player.getRotationVec(delta);
-        Vec3d start = look.multiply(0.5); // camera-relative, in front of crosshair
+        Vec3d start = mc.player.getRotationVec(delta).multiply(0.5); // camera-relative
 
         MatrixStack.Entry entry = matrices.peek();
 
@@ -80,18 +110,10 @@ public class ChestEspClient implements ClientModInitializer {
             double y = t.pos().getY() - cam.y;
             double z = t.pos().getZ() - cam.z;
 
-            VertexRendering.drawBox(matrices, lines, x, y, z, x + 1, y + 1, z + 1, r, g, b, 1f);
+            box(lines, entry, x, y, z, r, g, b);
 
             if (tracersOn) {
-                double ex = x + 0.5, ey = y + 0.5, ez = z + 0.5;
-                float nx = (float) (ex - start.x), ny = (float) (ey - start.y), nz = (float) (ez - start.z);
-                float len = (float) Math.sqrt(nx * nx + ny * ny + nz * nz);
-                if (len < 1e-4f) continue;
-                nx /= len; ny /= len; nz /= len;
-                lines.vertex(entry, (float) start.x, (float) start.y, (float) start.z)
-                        .color(r, g, b, 1f).normal(entry, nx, ny, nz).lineWidth(2f);
-                lines.vertex(entry, (float) ex, (float) ey, (float) ez)
-                        .color(r, g, b, 1f).normal(entry, nx, ny, nz).lineWidth(2f);
+                line(lines, entry, start.x, start.y, start.z, x + 0.5, y + 0.5, z + 0.5, r, g, b);
             }
         }
 
