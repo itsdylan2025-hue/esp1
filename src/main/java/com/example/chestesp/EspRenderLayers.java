@@ -4,6 +4,7 @@ import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.platform.DepthTestFunction;
 import net.minecraft.client.gl.RenderPipelines;
 import net.minecraft.client.render.RenderLayer;
+import net.minecraft.client.render.RenderSetup;
 import net.minecraft.util.Identifier;
 
 /** Line render layer with depth test OFF so boxes/tracers show through walls. */
@@ -16,8 +17,8 @@ public final class EspRenderLayers {
                     .build());
 
     public static final RenderLayer LINES = RenderLayer.of(
-            "chestesp_lines", 1536, false, true, LINES_NO_DEPTH,
-            RenderLayer.MultiPhaseParameters.builder().build(false));
+            "chestesp_lines",
+            RenderSetup.builder(LINES_NO_DEPTH).build());
 
     private EspRenderLayers() {}
 }
