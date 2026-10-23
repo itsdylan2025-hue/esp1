@@ -1,124 +1,96 @@
 package com.example.chestesp;
 
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.render.VertexConsumerProvider;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.text.Text;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.client.Minecraft;
+import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.phys.Vec3;
 import org.lwjgl.glfw.GLFW;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class ChestEspClient implements ClientModInitializer {
     private static final int CHUNK_RADIUS = 8;
     private static final int SCAN_EVERY_TICKS = 10;
+    private static final String[] MODES = {"BEFORE_TRANSLUCENT", "AFTER_ENTITIES", "BEFORE_DEBUG_RENDER", "END_MAIN"};
 
     private static boolean espOn = true;
     private static boolean tracersOn = true;
+    private static boolean test = true;   // magenta test box 4 blocks in front of you
+    private static boolean debug = true;  // status text in the action bar
+    private static int mode = 0;
+    private static long draws = 0;
+    private static String lastError = "";
     private static volatile List<Target> targets = List.of();
     private static int tick = 0;
 
-    private static KeyBinding toggleEsp, toggleTracers;
+    private static KeyMapping toggleEsp, toggleTracers, cycleMode, testBox;
 
     @Override
     public void onInitializeClient() {
-        toggleEsp = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.chestesp.toggle", GLFW.GLFW_KEY_K, KeyBinding.Category.MISC));
-        toggleTracers = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.chestesp.tracers", GLFW.GLFW_KEY_J, KeyBinding.Category.MISC));
+        toggleEsp = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+                "key.chestesp.toggle", GLFW.GLFW_KEY_K, KeyMapping.Category.MISC));
+        toggleTracers = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+                "key.chestesp.tracers", GLFW.GLFW_KEY_J, KeyMapping.Category.MISC));
+        cycleMode = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+                "key.chestesp.mode", GLFW.GLFW_KEY_L, KeyMapping.Category.MISC));
+        testBox = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+                "key.chestesp.test", GLFW.GLFW_KEY_H, KeyMapping.Category.MISC));
 
         ClientTickEvents.END_CLIENT_TICK.register(mc -> {
-            while (toggleEsp.wasPressed()) {
-                espOn = !espOn;
-                msg(mc, "Chest ESP: " + (espOn ? "ON" : "OFF"));
-            }
-            while (toggleTracers.wasPressed()) {
-                tracersOn = !tracersOn;
-                msg(mc, "Tracers: " + (tracersOn ? "ON" : "OFF"));
-            }
-            if (espOn && mc.world != null && ++tick % SCAN_EVERY_TICKS == 0) {
+            tick++;
+            while (toggleEsp.consumeClick()) { espOn = !espOn; msg(mc, "Chest ESP: " + (espOn ? "ON" : "OFF")); }
+            while (toggleTracers.consumeClick()) { tracersOn = !tracersOn; msg(mc, "Tracers: " + (tracersOn ? "ON" : "OFF")); }
+            while (cycleMode.consumeClick()) { mode = (mode + 1) % MODES.length; msg(mc, "Draw event: " + MODES[mode]); }
+            while (testBox.consumeClick()) { test = !test; msg(mc, "Test box: " + (test ? "ON" : "OFF")); }
+
+            if (espOn && mc.level != null && tick % SCAN_EVERY_TICKS == 0) {
                 targets = TargetScanner.scan(mc, CHUNK_RADIUS);
+            }
+            if (debug && espOn && mc.player != null && tick % 20 == 0) {
+                msg(mc, "ChestESP | targets: " + targets.size() + " | event: " + MODES[mode]
+                        + " | draws: " + draws + (lastError.isEmpty() ? "" : " | ERR: " + lastError));
             }
         });
 
-        WorldRenderEvents.BEFORE_DEBUG_RENDER.register(ChestEspClient::render);
+        WorldRenderEvents.BEFORE_TRANSLUCENT.register(c -> render(c, 0));
+        WorldRenderEvents.AFTER_ENTITIES.register(c -> render(c, 1));
+        WorldRenderEvents.BEFORE_DEBUG_RENDER.register(c -> render(c, 2));
+        WorldRenderEvents.END_MAIN.register(c -> render(c, 3));
+        ClientLifecycleEvents.CLIENT_STOPPING.register(c -> EspRenderer.close());
     }
 
-    private static void msg(MinecraftClient mc, String s) {
-        if (mc.player != null) mc.player.sendMessage(Text.literal(s), true);
+    private static void msg(Minecraft mc, String s) {
+        if (mc.player != null) mc.player.displayClientMessage(Component.literal(s), true);
     }
 
-    private static void line(VertexConsumer v, MatrixStack.Entry e,
-                             double x1, double y1, double z1,
-                             double x2, double y2, double z2,
-                             float r, float g, float b) {
-        float nx = (float) (x2 - x1), ny = (float) (y2 - y1), nz = (float) (z2 - z1);
-        float len = (float) Math.sqrt(nx * nx + ny * ny + nz * nz);
-        if (len < 1e-4f) return;
-        nx /= len; ny /= len; nz /= len;
-        v.vertex(e, (float) x1, (float) y1, (float) z1).color(r, g, b, 1f).normal(e, nx, ny, nz).lineWidth(2f);
-        v.vertex(e, (float) x2, (float) y2, (float) z2).color(r, g, b, 1f).normal(e, nx, ny, nz).lineWidth(2f);
-    }
+    private static void render(WorldRenderContext ctx, int which) {
+        if (which != mode) return;
+        Minecraft mc = Minecraft.getInstance();
+        if (!espOn || mc.player == null) return;
+        if (ctx.matrices() == null) { lastError = "matrices null in " + MODES[which]; return; }
 
-    private static void box(VertexConsumer v, MatrixStack.Entry e,
-                            double x, double y, double z, float r, float g, float b) {
-        double X = x + 1, Y = y + 1, Z = z + 1;
-        // bottom
-        line(v, e, x, y, z, X, y, z, r, g, b);
-        line(v, e, X, y, z, X, y, Z, r, g, b);
-        line(v, e, X, y, Z, x, y, Z, r, g, b);
-        line(v, e, x, y, Z, x, y, z, r, g, b);
-        // top
-        line(v, e, x, Y, z, X, Y, z, r, g, b);
-        line(v, e, X, Y, z, X, Y, Z, r, g, b);
-        line(v, e, X, Y, Z, x, Y, Z, r, g, b);
-        line(v, e, x, Y, Z, x, Y, z, r, g, b);
-        // verticals
-        line(v, e, x, y, z, x, Y, z, r, g, b);
-        line(v, e, X, y, z, X, Y, z, r, g, b);
-        line(v, e, X, y, Z, X, Y, Z, r, g, b);
-        line(v, e, x, y, Z, x, Y, Z, r, g, b);
-    }
-
-    private static void render(WorldRenderContext ctx) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (!espOn || mc.player == null || targets.isEmpty()) return;
-
-        MatrixStack matrices = ctx.matrices();
-        VertexConsumerProvider consumers = ctx.consumers();
-        VertexConsumer lines = consumers.getBuffer(EspRenderLayers.LINES);
-
-        float delta = mc.getRenderTickCounter().getTickProgress(true);
-        Vec3d cam = mc.gameRenderer.getCamera().getCameraPos();
-        Vec3d start = mc.player.getRotationVec(delta).multiply(0.5); // camera-relative
-
-        MatrixStack.Entry entry = matrices.peek();
-
-        for (Target t : targets) {
-            float r = ((t.rgb() >> 16) & 0xFF) / 255f;
-            float g = ((t.rgb() >> 8) & 0xFF) / 255f;
-            float b = (t.rgb() & 0xFF) / 255f;
-
-            double x = t.pos().getX() - cam.x;
-            double y = t.pos().getY() - cam.y;
-            double z = t.pos().getZ() - cam.z;
-
-            box(lines, entry, x, y, z, r, g, b);
-
-            if (tracersOn) {
-                line(lines, entry, start.x, start.y, start.z, x + 0.5, y + 0.5, z + 0.5, r, g, b);
-            }
+        List<Target> list = new ArrayList<>(targets);
+        Vec3 look = mc.player.getViewVector(1.0F);
+        if (test) {
+            Vec3 p = mc.player.getEyePosition().add(look.scale(4));
+            list.add(new Target(BlockPos.containing(p.x, p.y, p.z), 0xFF00FF));
         }
+        if (list.isEmpty()) return;
 
-        if (consumers instanceof VertexConsumerProvider.Immediate imm) {
-            imm.draw(EspRenderLayers.LINES);
+        try {
+            EspRenderer.render(ctx, list, tracersOn, look);
+            draws++;
+            lastError = "";
+        } catch (Throwable t) {
+            lastError = t.toString();
         }
     }
 }
