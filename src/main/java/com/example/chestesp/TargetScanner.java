@@ -1,12 +1,10 @@
 package com.example.chestesp;
 
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.world.ClientWorld;
-import net.minecraft.registry.Registries;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.world.chunk.ChunkStatus;
-import net.minecraft.world.chunk.WorldChunk;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.chunk.LevelChunk;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,19 +22,21 @@ public final class TargetScanner {
 
     private TargetScanner() {}
 
-    public static List<Target> scan(MinecraftClient mc, int chunkRadius) {
+    public static List<Target> scan(Minecraft mc, int chunkRadius) {
         List<Target> out = new ArrayList<>();
-        ClientWorld world = mc.world;
-        if (world == null || mc.player == null) return out;
+        ClientLevel level = mc.level;
+        if (level == null || mc.player == null) return out;
 
-        ChunkPos center = mc.player.getChunkPos();
+        int pcx = mc.player.blockPosition().getX() >> 4;
+        int pcz = mc.player.blockPosition().getZ() >> 4;
+
         for (int dx = -chunkRadius; dx <= chunkRadius; dx++) {
             for (int dz = -chunkRadius; dz <= chunkRadius; dz++) {
-                var chunk = world.getChunk(center.x + dx, center.z + dz, ChunkStatus.FULL, false);
-                if (!(chunk instanceof WorldChunk wc)) continue;
-                for (BlockEntity be : wc.getBlockEntities().values()) {
+                LevelChunk chunk = level.getChunk(pcx + dx, pcz + dz);
+                if (chunk == null) continue;
+                for (BlockEntity be : new ArrayList<>(chunk.getBlockEntities().values())) {
                     int color = colorFor(be);
-                    if (color != -1) out.add(new Target(be.getPos().toImmutable(), color));
+                    if (color != -1) out.add(new Target(be.getBlockPos().immutable(), color));
                 }
             }
         }
@@ -44,7 +44,7 @@ public final class TargetScanner {
     }
 
     private static int colorFor(BlockEntity be) {
-        String id = Registries.BLOCK.getId(be.getCachedState().getBlock()).getPath();
+        String id = BuiltInRegistries.BLOCK.getKey(be.getBlockState().getBlock()).getPath();
         if (id.contains("copper_chest")) return COPPER_CHEST;
         if (id.equals("ender_chest"))    return ENDER_CHEST;
         if (id.equals("trapped_chest"))  return TRAPPED;
