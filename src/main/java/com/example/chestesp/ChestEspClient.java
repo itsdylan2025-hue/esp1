@@ -23,9 +23,9 @@ public class ChestEspClient implements ClientModInitializer {
 
     private static boolean espOn = true;
     private static boolean tracersOn = true;
-    private static boolean test = true;   // magenta test box 4 blocks in front of you
-    private static boolean debug = true;  // status text in the action bar
-    private static int mode = 0;
+    private static boolean test = false;   // magenta test box 4 blocks in front of you (H toggles)
+    private static boolean debug = false;  // status text in the action bar
+    private static int mode = 0;           // 0 = BEFORE_TRANSLUCENT (the one that works)
     private static long draws = 0;
     private static String lastError = "";
     private static volatile List<Target> targets = List.of();
