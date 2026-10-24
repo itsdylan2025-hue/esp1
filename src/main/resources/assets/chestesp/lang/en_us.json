@@ -1,4 +1,7 @@
 {
   "key.chestesp.toggle": "Toggle Chest ESP",
-  "key.chestesp.tracers": "Toggle Tracers"
+  "key.chestesp.tracers": "Toggle Tracers",
+  "key.chestesp.signs": "Toggle Signs",
+  "key.chestesp.mode": "Cycle Draw Event (debug)",
+  "key.chestesp.test": "Toggle Test Box (debug)"
 }
